@@ -228,11 +228,8 @@ fn isGPX(entry: &DirEntry) -> bool {
         .unwrap_or(false)
 }
 
-fn main() {
-    let mut tiles: HashMap<TileKey, Tile> = HashMap::new();
-
-    let start = Instant::now();
-
+#[inline(never)]
+fn read_gpx(tiles: &mut HashMap<TileKey, Tile>) {
     //let mut paths: Vec<String> = vec![];
     let walker = WalkDir::new("/Users/cj/Documents/P/GPX_Archive/Final/").into_iter();
     /*
@@ -254,17 +251,31 @@ fn main() {
         let e = entry.unwrap();
         if isGPX(&e) {
             //println!("{:?}", e.path().to_str().unwrap());
-            processGPX(&e.path().to_str().unwrap(), &mut tiles);
+            processGPX(&e.path().to_str().unwrap(), tiles);
         }
     }
+}
+
+#[inline(never)]
+fn write_tiles(tiles: &HashMap<TileKey, Tile>) {
+    for (key, tile) in tiles {
+        writePng16(&tile, &format!("/Users/cj/Documents/P/WebMaps/html/historando/{}/{}/{}.png", key.zoom, key.x, key.y));
+        //println!("{:?}", key);
+    }
+}
+
+fn main() {
+    let mut tiles: HashMap<TileKey, Tile> = HashMap::new();
+
+    let start = Instant::now();
+
+    read_gpx(&mut tiles);
 
     println!("==> At {}", start.elapsed().as_millis());
 
     println!("** Generating tiles **");
-    for (key, tile) in tiles {
-        writePng16(&tile, &format!("/tmp/tiles/{}/{}/{}.png", key.zoom, key.x, key.y));
-        //println!("{:?}", key);
-    }
+
+    write_tiles(&tiles);
 
     println!("==> At {}", start.elapsed().as_millis());
 }
