@@ -1,5 +1,6 @@
 extern crate quick_xml;
 
+use quick_xml::name::QName;
 use quick_xml::Reader;
 use quick_xml::events::Event;
 
@@ -124,7 +125,7 @@ fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Ti
 
 #[inline(always)]
 fn attribute_to_float(a: quick_xml::events::attributes::Attribute) -> f32 {
-    return str::from_utf8(a.unescaped_value().unwrap().to_mut()).unwrap().parse::<f32>().unwrap();
+    return a.unescape_value().unwrap().parse::<f32>().unwrap();
 }
 
 fn pack_png_chunk(png_tag: &[u8], data: &[&[u8]], contents: &mut Vec<u8>) {
@@ -177,23 +178,22 @@ fn process_gpx(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
     let mut reader = Reader::from_str(&content);
     //reader.trim_text(true);
 
-    let mut buf = Vec::new();
     let mut prev_sq: Option<Coords> = None;
     loop {
-        match reader.read_event(&mut buf) {
+        match reader.read_event() {
             Ok(Event::Start(ref e)) => {
                 match e.name() {
-                    b"trkseg" => {
+                    QName(b"trkseg") => {
                         prev_sq = None;
                     },
-                    b"trkpt" => {
+                    QName(b"trkpt") => {
                         let mut x: f32 = 0.;
                         let mut y: f32 = 0.;
                         for attr in e.attributes() {
                             let a = attr.unwrap();
                             match a.key {
-                                b"lat" => x = attribute_to_float(a), //println!("lat='{:?}'", attributeToFloat(a)), //String::from_utf8(a.value.to_vec())),
-                                b"lon" => y = attribute_to_float(a), //println!("lon='{:?}'", attributeToFloat(a)),
+                                QName(b"lat") => x = attribute_to_float(a), //println!("lat='{:?}'", attributeToFloat(a)), //String::from_utf8(a.value.to_vec())),
+                                QName(b"lon") => y = attribute_to_float(a), //println!("lon='{:?}'", attributeToFloat(a)),
                                 _ => (),
                             }
                         }
@@ -217,9 +217,6 @@ fn process_gpx(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
             Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
             _ => (), // There are several other `Event`s we do not consider here
         }
-    
-        // if we don't keep a borrow elsewhere, we can clear the buffer to keep memory usage low
-        buf.clear();
     }
 }
 
