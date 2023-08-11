@@ -6,9 +6,9 @@ use quick_xml::events::Event;
 use std::collections::HashMap;
 use std::str;
 
-use std::fs::File;
-use std::io::prelude::*;
-use std::path::Path;
+//use std::fs::File;
+//use std::io::prelude::*;
+//use std::path::Path;
 use std::time::Instant;
 
 use walkdir::{DirEntry, WalkDir};
@@ -32,7 +32,7 @@ const CRC32: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 type Tile = [[bool; NUM_SQUARES as usize]; NUM_SQUARES as usize];
 
 #[inline(always)]
-fn tileNum(lat_deg: f32, lon_deg: f32, zoom: u32) -> Coords {
+fn tile_num(lat_deg: f32, lon_deg: f32, zoom: u32) -> Coords {
     let lat_rad = lat_deg.to_radians();
     let n = 2_i32.pow(zoom) as f32;
     let xtile = (lon_deg + 180.0) / 360.0 * n;
@@ -44,7 +44,7 @@ fn tileNum(lat_deg: f32, lon_deg: f32, zoom: u32) -> Coords {
 }
 
 #[inline(always)]
-fn addPixel(zoom: u32, xtile: u32, xsq: u32, ytile: u32, ysq: u32, tiles: &mut HashMap<TileKey, Tile>) {
+fn add_pixel(zoom: u32, xtile: u32, xsq: u32, ytile: u32, ysq: u32, tiles: &mut HashMap<TileKey, Tile>) {
     let key = TileKey {
         zoom: zoom,
         x: xtile,
@@ -55,11 +55,14 @@ fn addPixel(zoom: u32, xtile: u32, xsq: u32, ytile: u32, ysq: u32, tiles: &mut H
 }
 
 #[inline(always)]
-fn addPixelAtAllLevels(mut xsq: i32, mut ysq: i32, tiles: &mut HashMap<TileKey, Tile>) {
+fn add_pixel_at_all_levels(mut xsq: i32, mut ysq: i32, tiles: &mut HashMap<TileKey, Tile>) {
     for zoom in (0..=MAX_ZOOM).rev() {
         let (xtile, xdelta) = (xsq as u32 / NUM_SQUARES, xsq as u32 % NUM_SQUARES);
         let (ytile, ydelta) = (ysq as u32 / NUM_SQUARES, ysq as u32 % NUM_SQUARES);
-        addPixel(zoom, xtile, xdelta, ytile, ydelta, tiles);
+        add_pixel(zoom, xtile, xdelta, ytile, ydelta, tiles);
+        //if zoom == 16 && xtile == 35345 {
+        //    println!("Expected tile!!!");
+        //}
         xsq /= 2;
         ysq /= 2;
     }
@@ -96,25 +99,23 @@ fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Ti
         (xx, xy, yx, yy) = (0, ysign, xsign, 0);
     }
 
-    let mut D = 2*dy - dx;
-    let mut y = 0;
+    let mut d = 2*dy - dx;
 
     let mut pixx = x0;
     let mut pixy = y0;
 
-    for x in 0..=dx {
+    for _x in 0..=dx {
         //println!("Pixel: {:?}, {:?}", x0 + x*xx + y*yx, y0 + x*xy + y*yy);
         //naive: addPixelAtAllLevels(x0 + x*xx + y*yx, y0 + x*xy + y*yy, tiles);
-        addPixelAtAllLevels(pixx, pixy, tiles);
+        add_pixel_at_all_levels(pixx, pixy, tiles);
         //yield x0 + x*xx + y*yx, y0 + x*xy + y*yy
-        if D >= 0 {
-            y += 1;
-            D -= 2*dx;
+        if d >= 0 {
+            d -= 2*dx;
             // optim
             pixx += yx;
             pixy += yy;
         }
-        D += 2*dy;
+        d += 2*dy;
         // optim
         pixx += xx;
         pixy += xy;
@@ -122,25 +123,25 @@ fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Ti
 }
 
 #[inline(always)]
-fn attributeToFloat(a: quick_xml::events::attributes::Attribute) -> f32 {
+fn attribute_to_float(a: quick_xml::events::attributes::Attribute) -> f32 {
     return str::from_utf8(a.unescaped_value().unwrap().to_mut()).unwrap().parse::<f32>().unwrap();
 }
 
-fn packPngChunk(pngTag: &[u8], data: &[&[u8]], contents: &mut Vec<u8>) {;
-    let mut dataSize = 0_usize;
+fn pack_png_chunk(png_tag: &[u8], data: &[&[u8]], contents: &mut Vec<u8>) {
+    let mut data_size = 0_usize;
     for d in data {
-        dataSize += d.len();
+        data_size += d.len();
     }
-    contents.extend_from_slice(&(dataSize as u32).to_be_bytes());
-    contents.extend_from_slice(pngTag);
+    contents.extend_from_slice(&(data_size as u32).to_be_bytes());
+    contents.extend_from_slice(png_tag);
     for d in data {
         contents.extend_from_slice(d);
     }
-    let checksum = CRC32.checksum(&contents[(contents.len()-dataSize-4)..]);
+    let checksum = CRC32.checksum(&contents[(contents.len()-data_size-4)..]);
     contents.extend_from_slice(&checksum.to_be_bytes());
 }
 
-fn writePng16(tile: &Tile, filename: &str) {
+fn write_png_16(tile: &Tile, filename: &str) -> std::io::Result<()> {
     let mut image = Vec::<u8>::with_capacity((16*NUM_SQUARES*(1+2*NUM_SQUARES)) as usize);
     for y in 0..NUM_SQUARES as usize {
         let mut line = Vec::<u8>::with_capacity(1+2*NUM_SQUARES as usize);
@@ -160,16 +161,17 @@ fn writePng16(tile: &Tile, filename: &str) {
     //let mut file = File::create(filename).unwrap();
     let mut contents = Vec::with_capacity(5000);
     contents.extend_from_slice(b"\x89PNG\r\n\x1a\n");
-    packPngChunk(b"IHDR", &[&(16 * NUM_SQUARES).to_be_bytes(), &(16 * NUM_SQUARES).to_be_bytes(), &[1, 3, 0, 0, 0]], &mut contents);
-    packPngChunk(b"PLTE", &[&[0, 0, 0, 255, 0, 255]], &mut contents);
-    packPngChunk(b"tRNS", &[&[0, 100]], &mut contents);
-    packPngChunk(b"IDAT", &[&compressed], &mut contents); // TODO...
-    packPngChunk(b"IEND", &[], &mut contents);
-    std::fs::write(filename, &contents);
+    pack_png_chunk(b"IHDR", &[&(16 * NUM_SQUARES).to_be_bytes(), &(16 * NUM_SQUARES).to_be_bytes(), &[1, 3, 0, 0, 0]], &mut contents);
+    pack_png_chunk(b"PLTE", &[&[0, 0, 0, 255, 0, 255]], &mut contents);
+    pack_png_chunk(b"tRNS", &[&[0, 100]], &mut contents);
+    pack_png_chunk(b"IDAT", &[&compressed], &mut contents); // TODO...
+    pack_png_chunk(b"IEND", &[], &mut contents);
+    std::fs::write(filename, &contents)
     //file.write_all(&contents);
 }
 
-fn processGPX(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
+fn process_gpx(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
+    //println!("GPX: {}", path);
     let content = std::fs::read_to_string(path).ok().unwrap();
 
     let mut reader = Reader::from_str(&content);
@@ -190,12 +192,12 @@ fn processGPX(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
                         for attr in e.attributes() {
                             let a = attr.unwrap();
                             match a.key {
-                                b"lat" => x = attributeToFloat(a), //println!("lat='{:?}'", attributeToFloat(a)), //String::from_utf8(a.value.to_vec())),
-                                b"lon" => y = attributeToFloat(a), //println!("lon='{:?}'", attributeToFloat(a)),
+                                b"lat" => x = attribute_to_float(a), //println!("lat='{:?}'", attributeToFloat(a)), //String::from_utf8(a.value.to_vec())),
+                                b"lon" => y = attribute_to_float(a), //println!("lon='{:?}'", attributeToFloat(a)),
                                 _ => (),
                             }
                         }
-                        let cur_sq = tileNum(x, y, MAX_ZOOM);
+                        let cur_sq = tile_num(x, y, MAX_ZOOM);
                         match prev_sq {
                             Some(s) => {
                                 bresenham(s.x as i32, s.y as i32, cur_sq.x as i32, cur_sq.y as i32, tiles);
@@ -221,7 +223,7 @@ fn processGPX(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
     }
 }
 
-fn isGPX(entry: &DirEntry) -> bool {
+fn is_gpx(entry: &DirEntry) -> bool {
     entry.file_name()
         .to_str()
         .map(|s| s.ends_with(".gpx"))
@@ -231,7 +233,21 @@ fn isGPX(entry: &DirEntry) -> bool {
 #[inline(never)]
 fn read_gpx(tiles: &mut HashMap<TileKey, Tile>) {
     //let mut paths: Vec<String> = vec![];
-    let walker = WalkDir::new("/Users/cj/Documents/P/GPX_Archive/Final/").into_iter();
+    let dirs = vec!["/Users/cj/Documents/P/GPX_Archive/Final/",
+    "/Users/cj/Documents/P/GPX_Archive/Quotidiennes/", "/Users/cj/Documents/P/GPX_Archive/PetitesVisites/"];
+
+    for dir in dirs {
+        let walker = WalkDir::new(dir).into_iter();
+
+        for entry in walker {
+            let e = entry.unwrap();
+            if is_gpx(&e) {
+                //println!("{:?}", e.path().to_str().unwrap());
+                process_gpx(&e.path().to_str().unwrap(), tiles);
+            }
+        }
+    }
+    
     /*
     for entry in walker { //}.filter_entry(|e| isGPX(e)) {
         let e = &entry.unwrap();
@@ -247,20 +263,14 @@ fn read_gpx(tiles: &mut HashMap<TileKey, Tile>) {
     }
     */
 
-    for entry in walker {
-        let e = entry.unwrap();
-        if isGPX(&e) {
-            //println!("{:?}", e.path().to_str().unwrap());
-            processGPX(&e.path().to_str().unwrap(), tiles);
-        }
-    }
 }
 
 #[inline(never)]
 fn write_tiles(tiles: &HashMap<TileKey, Tile>) {
     for (key, tile) in tiles {
-        writePng16(&tile, &format!("/Users/cj/Documents/P/WebMaps/html/historando/{}/{}/{}.png", key.zoom, key.x, key.y));
+        let _ = write_png_16(&tile, &format!("/tmp/historando/{}/{}/{}.png", key.zoom, key.x, key.y));
         //println!("{:?}", key);
+        // "/Users/cj/Documents/P/WebMaps/html/historando/
     }
 }
 
