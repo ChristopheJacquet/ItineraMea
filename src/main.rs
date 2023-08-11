@@ -125,7 +125,13 @@ fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Ti
 
 #[inline(always)]
 fn attribute_to_float(a: quick_xml::events::attributes::Attribute) -> f32 {
-    return a.unescape_value().unwrap().parse::<f32>().unwrap();
+    return str::from_utf8(&a.value).unwrap().parse::<f32>().unwrap();
+    // Note: this would be more correct, as attribute contents may be escaped:
+    //    return a.unescape_value().unwrap().parse::<f32>().unwrap();
+    // However, none of my GPX file seems to have escaped numeric attributes,
+    // so not using unescape_value() is faster. The GPX analysis phase
+    // goes from ~2680 ms to ~2480ms by removing unescape_value(), i.e. a ~7%
+    // time decrease.
 }
 
 fn pack_png_chunk(png_tag: &[u8], data: &[&[u8]], contents: &mut Vec<u8>) {
