@@ -166,7 +166,7 @@ fn write_png_16(tile: &Tile, filename: &str) -> std::io::Result<()> {
     let prefix = path.parent().unwrap();
     std::fs::create_dir_all(prefix).unwrap();
     //let mut file = File::create(filename).unwrap();
-    let mut contents = Vec::with_capacity(5000);
+    let mut contents = Vec::with_capacity(500);
     contents.extend_from_slice(b"\x89PNG\r\n\x1a\n");
     pack_png_chunk(b"IHDR", &[&(16 * NUM_SQUARES).to_be_bytes(), &(16 * NUM_SQUARES).to_be_bytes(), &[1, 3, 0, 0, 0]], &mut contents);
     pack_png_chunk(b"PLTE", &[&[0, 0, 0, 255, 0, 255]], &mut contents);
