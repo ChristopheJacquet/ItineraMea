@@ -14,6 +14,8 @@ use std::time::Instant;
 
 use walkdir::{DirEntry, WalkDir};
 
+use rayon::prelude::*;
+
 struct Coords {
     x: u32,
     y: u32,
@@ -270,11 +272,11 @@ fn read_gpx(tiles: &mut HashMap<TileKey, Tile>) {
 
 #[inline(never)]
 fn write_tiles(tiles: &HashMap<TileKey, Tile>) {
-    for (key, tile) in tiles {
+    tiles.par_iter().for_each( |(key, tile)| {
         let _ = write_png_16(&tile, &format!("/tmp/historando/{}/{}/{}.png", key.zoom, key.x, key.y));
         //println!("{:?}", key);
         // "/Users/cj/Documents/P/WebMaps/html/historando/
-    }
+    });
 }
 
 fn main() {
