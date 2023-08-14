@@ -7,9 +7,6 @@ use quick_xml::events::Event;
 use std::collections::HashMap;
 use std::str;
 
-//use std::fs::File;
-//use std::io::prelude::*;
-//use std::path::Path;
 use std::time::Instant;
 
 use walkdir::{DirEntry, WalkDir};
@@ -108,10 +105,7 @@ fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Ti
     let mut pixy = y0;
 
     for _x in 0..=dx {
-        //println!("Pixel: {:?}, {:?}", x0 + x*xx + y*yx, y0 + x*xy + y*yy);
-        //naive: addPixelAtAllLevels(x0 + x*xx + y*yx, y0 + x*xy + y*yy, tiles);
         add_pixel_at_all_levels(pixx, pixy, tiles);
-        //yield x0 + x*xx + y*yx, y0 + x*xy + y*yy
         if d >= 0 {
             d -= 2*dx;
             // optim
@@ -167,7 +161,6 @@ fn write_png_16(tile: &Tile, filename: &str) -> std::io::Result<()> {
     let path = std::path::Path::new(filename);
     let prefix = path.parent().unwrap();
     std::fs::create_dir_all(prefix).unwrap();
-    //let mut file = File::create(filename).unwrap();
     let mut contents = Vec::with_capacity(500);
     contents.extend_from_slice(b"\x89PNG\r\n\x1a\n");
     pack_png_chunk(b"IHDR", &[&(16 * NUM_SQUARES).to_be_bytes(), &(16 * NUM_SQUARES).to_be_bytes(), &[1, 3, 0, 0, 0]], &mut contents);
@@ -176,7 +169,6 @@ fn write_png_16(tile: &Tile, filename: &str) -> std::io::Result<()> {
     pack_png_chunk(b"IDAT", &[&compressed], &mut contents); // TODO...
     pack_png_chunk(b"IEND", &[], &mut contents);
     std::fs::write(filename, &contents)
-    //file.write_all(&contents);
 }
 
 fn process_gpx(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
@@ -184,7 +176,6 @@ fn process_gpx(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
     let content = std::fs::read_to_string(path).ok().unwrap();
 
     let mut reader = Reader::from_str(&content);
-    //reader.trim_text(true);
 
     let mut prev_sq: Option<Coords> = None;
     loop {
@@ -200,8 +191,8 @@ fn process_gpx(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
                         for attr in e.attributes() {
                             let a = attr.unwrap();
                             match a.key {
-                                QName(b"lat") => x = attribute_to_float(a), //println!("lat='{:?}'", attributeToFloat(a)), //String::from_utf8(a.value.to_vec())),
-                                QName(b"lon") => y = attribute_to_float(a), //println!("lon='{:?}'", attributeToFloat(a)),
+                                QName(b"lat") => x = attribute_to_float(a),
+                                QName(b"lon") => y = attribute_to_float(a),
                                 _ => (),
                             }
                         }
@@ -214,13 +205,9 @@ fn process_gpx(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
                         }
                         prev_sq = Some(cur_sq);
                     },
-                // String::from_utf8(
-                    //println!("trkpt, attributes values: {:?}",
-                                                            //e.attributes().map(|a| String::from_utf8(a.unwrap().value.to_vec()).unwrap()).collect::<Vec<_>>()),
                     _ => (),
                 };
             },
-            //Ok(Event::Text(e)) => println!("{:?}", e.unescape_and_decode(&reader).unwrap()),
             Ok(Event::Eof) => break, // exits the loop when reaching end of file
             Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
             _ => (), // There are several other `Event`s we do not consider here
@@ -252,29 +239,12 @@ fn read_gpx(tiles: &mut HashMap<TileKey, Tile>) {
             }
         }
     }
-    
-    /*
-    for entry in walker { //}.filter_entry(|e| isGPX(e)) {
-        let e = &entry.unwrap();
-        if isGPX(&e) {
-            paths.push(e.path().to_str().unwrap().to_string());
-        }
-    }
-
-    //paths.par_iter().for_each(|path| {
-    for path in paths {
-        println!("{:?}", path);
-        processGPX(&path, &mut tiles);
-    }
-    */
-
 }
 
 #[inline(never)]
 fn write_tiles(tiles: &HashMap<TileKey, Tile>) {
     tiles.par_iter().for_each( |(key, tile)| {
         let _ = write_png_16(&tile, &format!("/tmp/historando/{}/{}/{}.png", key.zoom, key.x, key.y));
-        //println!("{:?}", key);
         // "/Users/cj/Documents/P/WebMaps/html/historando/
     });
 }
