@@ -1,5 +1,7 @@
 extern crate quick_xml;
 
+use clap::Parser;
+
 use quick_xml::name::QName;
 use quick_xml::Reader;
 use quick_xml::events::Event;
@@ -7,11 +9,25 @@ use quick_xml::events::Event;
 use std::collections::HashMap;
 use std::str;
 
+use std::path::{Path,PathBuf};
+
 use std::time::Instant;
 
 use walkdir::{DirEntry, WalkDir};
 
 use rayon::prelude::*;
+
+#[derive(Parser, Debug)]
+#[command(author, about = "Generate a tileset from GPX files.", long_about = None)]
+struct Args {
+    /// Input directory containing GPX files (walked recursively)
+    #[arg(short, long, value_parser, num_args=1.., value_delimiter=',')]
+    input_dir: Vec<PathBuf>,
+
+    /// Output directory (for PNG tileset)
+    #[arg(short, long)]
+    output_dir: String,
+}
 
 struct Coords {
     x: u32,
@@ -171,7 +187,7 @@ fn write_png_16(tile: &Tile, filename: &str) -> std::io::Result<()> {
     std::fs::write(filename, &contents)
 }
 
-fn process_gpx(path: &str, tiles: &mut HashMap<TileKey, Tile>) {
+fn process_gpx(path: &Path, tiles: &mut HashMap<TileKey, Tile>) {
     //println!("GPX: {}", path);
     let content = std::fs::read_to_string(path).ok().unwrap();
 
@@ -223,44 +239,42 @@ fn is_gpx(entry: &DirEntry) -> bool {
 }
 
 #[inline(never)]
-fn read_gpx(tiles: &mut HashMap<TileKey, Tile>) {
-    //let mut paths: Vec<String> = vec![];
-    let dirs = vec!["/Users/cj/Documents/P/GPX_Archive/Final/",
-    "/Users/cj/Documents/P/GPX_Archive/Quotidiennes/", "/Users/cj/Documents/P/GPX_Archive/PetitesVisites/"];
-
-    for dir in dirs {
+fn read_gpx(input_dir: &Vec<PathBuf>, tiles: &mut HashMap<TileKey, Tile>) {
+    for dir in input_dir {
+        println!("Processing input directory: {dir:?}.");
         let walker = WalkDir::new(dir).into_iter();
 
         for entry in walker {
             let e = entry.unwrap();
             if is_gpx(&e) {
                 //println!("{:?}", e.path().to_str().unwrap());
-                process_gpx(&e.path().to_str().unwrap(), tiles);
+                process_gpx(&e.path(), tiles);
             }
         }
     }
 }
 
 #[inline(never)]
-fn write_tiles(tiles: &HashMap<TileKey, Tile>) {
+fn write_tiles(output_dir: &str, tiles: &HashMap<TileKey, Tile>) {
     tiles.par_iter().for_each( |(key, tile)| {
-        let _ = write_png_16(&tile, &format!("/tmp/historando/{}/{}/{}.png", key.zoom, key.x, key.y));
-        // "/Users/cj/Documents/P/WebMaps/html/historando/
+        let _ = write_png_16(&tile, &format!("{}/{}/{}/{}.png", output_dir, key.zoom, key.x, key.y));
     });
 }
 
 fn main() {
+    let args = Args::parse();
+
     let mut tiles: HashMap<TileKey, Tile> = HashMap::new();
 
     let start = Instant::now();
 
-    read_gpx(&mut tiles);
+    read_gpx(&args.input_dir, &mut tiles);
 
     println!("==> At {}", start.elapsed().as_millis());
 
     println!("** Generating tiles **");
 
-    write_tiles(&tiles);
+    write_tiles(&args.output_dir, &tiles);
 
     println!("==> At {}", start.elapsed().as_millis());
 }

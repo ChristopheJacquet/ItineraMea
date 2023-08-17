@@ -11,3 +11,4 @@ miniz_oxide = "*"
 crc = "*"
 walkdir = "2"
 rayon = "*"
+clap = { version = "4.3.21", features = ["derive"] }
