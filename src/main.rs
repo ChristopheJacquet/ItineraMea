@@ -27,6 +27,15 @@ struct Args {
     /// Output directory (for PNG tileset)
     #[arg(short, long)]
     output_dir: String,
+
+    /// Enable tracing: will print out the name of the GPX files writing squares
+    /// at the given coordinates, which must be of the form z,x,y where z is
+    /// the zoom level (integer), x is the Mercator easting (integer), and y is
+    /// the Mercator northing (integer). These are square coordinates, not tile
+    /// coordinates (so the values are ~16 times larger when there are 16
+    /// squares per tile).
+    #[arg(long)]
+    trace: Option<String>,
 }
 
 struct Coords {
@@ -36,6 +45,12 @@ struct Coords {
 
 #[derive(PartialEq, Eq, Hash)]
 struct TileKey {
+    zoom: u32,
+    x: u32,
+    y: u32,
+}
+
+struct TraceInfo {
     zoom: u32,
     x: u32,
     y: u32,
@@ -71,21 +86,23 @@ fn add_pixel(zoom: u32, xtile: u32, xsq: u32, ytile: u32, ysq: u32, tiles: &mut 
 }
 
 #[inline(always)]
-fn add_pixel_at_all_levels(mut xsq: i32, mut ysq: i32, tiles: &mut HashMap<TileKey, Tile>) {
+fn add_pixel_at_all_levels(mut xsq: i32, mut ysq: i32, tiles: &mut HashMap<TileKey, Tile>, gpx_path: &Path, trace_info: &Option<TraceInfo>) {
     for zoom in (0..=MAX_ZOOM).rev() {
         let (xtile, xdelta) = (xsq as u32 / NUM_SQUARES, xsq as u32 % NUM_SQUARES);
         let (ytile, ydelta) = (ysq as u32 / NUM_SQUARES, ysq as u32 % NUM_SQUARES);
         add_pixel(zoom, xtile, xdelta, ytile, ydelta, tiles);
-        //if zoom == 16 && xtile == 35345 {
-        //    println!("Expected tile!!!");
-        //}
+        if let Some(t) = trace_info {
+            if zoom == t.zoom && xsq as u32 == t.x && ysq as u32 == t.y {
+                println!("Square set from {}", gpx_path.display());
+            }
+        }
         xsq /= 2;
         ysq /= 2;
     }
 }
 
 #[inline(always)]
-fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Tile>) {
+fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Tile>, gpx_path: &Path, trace_info: &Option<TraceInfo>) {
     // Yield integer coordinates on the line from (x0, y0) to (x1, y1).
 
     // Input coordinates should be integers.
@@ -121,7 +138,7 @@ fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Ti
     let mut pixy = y0;
 
     for _x in 0..=dx {
-        add_pixel_at_all_levels(pixx, pixy, tiles);
+        add_pixel_at_all_levels(pixx, pixy, tiles, gpx_path, trace_info);
         if d >= 0 {
             d -= 2*dx;
             // optim
@@ -187,7 +204,7 @@ fn write_png_16(tile: &Tile, filename: &str) -> std::io::Result<()> {
     std::fs::write(filename, &contents)
 }
 
-fn process_gpx(path: &Path, tiles: &mut HashMap<TileKey, Tile>) {
+fn process_gpx(path: &Path, tiles: &mut HashMap<TileKey, Tile>, trace_info: &Option<TraceInfo>) {
     //println!("GPX: {}", path);
     let content = std::fs::read_to_string(path).ok().unwrap();
 
@@ -215,7 +232,7 @@ fn process_gpx(path: &Path, tiles: &mut HashMap<TileKey, Tile>) {
                         let cur_sq = tile_num(x, y, MAX_ZOOM);
                         match prev_sq {
                             Some(s) => {
-                                bresenham(s.x as i32, s.y as i32, cur_sq.x as i32, cur_sq.y as i32, tiles);
+                                bresenham(s.x as i32, s.y as i32, cur_sq.x as i32, cur_sq.y as i32, tiles, path, trace_info);
                             },
                             _ => (),
                         }
@@ -239,7 +256,7 @@ fn is_gpx(entry: &DirEntry) -> bool {
 }
 
 #[inline(never)]
-fn read_gpx(input_dir: &Vec<PathBuf>, tiles: &mut HashMap<TileKey, Tile>) {
+fn read_gpx(input_dir: &Vec<PathBuf>, tiles: &mut HashMap<TileKey, Tile>, trace_info: &Option<TraceInfo>) {
     for dir in input_dir {
         println!("Processing input directory: {dir:?}.");
         let walker = WalkDir::new(dir).into_iter();
@@ -248,7 +265,7 @@ fn read_gpx(input_dir: &Vec<PathBuf>, tiles: &mut HashMap<TileKey, Tile>) {
             let e = entry.unwrap();
             if is_gpx(&e) {
                 //println!("{:?}", e.path().to_str().unwrap());
-                process_gpx(&e.path(), tiles);
+                process_gpx(&e.path(), tiles, trace_info);
             }
         }
     }
@@ -264,11 +281,33 @@ fn write_tiles(output_dir: &str, tiles: &HashMap<TileKey, Tile>) {
 fn main() {
     let args = Args::parse();
 
+    let trace_info = match &args.trace {
+        None => None,
+        Some(t) => {
+            let parts: Vec<&str> = t.split(",").collect();
+            let int_parts: Vec<Result<u32, _>> = parts.into_iter().map(|x| x.parse::<u32>()).collect();
+            match int_parts.as_slice() {
+                [Ok(zoom), Ok(x), Ok(y)] => {
+                    println!("Tracing square zoom={}, x={}, y={}", zoom, x, y);
+                    Some(TraceInfo{
+                        zoom: *zoom,
+                        x: *x,
+                        y: *y,
+                    })
+                },
+                _ => {
+                    println!("Bad format for --trace value. Expects z,x,y where z, x and y are unsigned integers.");
+                    None
+                }
+            }
+        },
+    };
+
     let mut tiles: HashMap<TileKey, Tile> = HashMap::new();
 
     let start = Instant::now();
 
-    read_gpx(&args.input_dir, &mut tiles);
+    read_gpx(&args.input_dir, &mut tiles, &trace_info);
 
     println!("==> At {}", start.elapsed().as_millis());
 
