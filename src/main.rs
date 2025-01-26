@@ -7,6 +7,7 @@ use quick_xml::Reader;
 use quick_xml::events::Event;
 
 use std::collections::HashMap;
+use std::fs;
 use std::str;
 
 use std::path::{Path,PathBuf};
@@ -16,6 +17,8 @@ use std::time::Instant;
 use walkdir::{DirEntry, WalkDir};
 
 use rayon::prelude::*;
+
+use regex::Regex;
 
 #[derive(Parser, Debug)]
 #[command(author, about = "Generate a tileset from GPX files.", long_about = None)]
@@ -201,6 +204,17 @@ fn write_png_16(tile: &Tile, filename: &str) -> std::io::Result<()> {
     pack_png_chunk(b"tRNS", &[&[0, 100]], &mut contents);
     pack_png_chunk(b"IDAT", &[&compressed], &mut contents); // TODO...
     pack_png_chunk(b"IEND", &[], &mut contents);
+
+    // Try to read the destination file. If it exsists and its contents is the
+    // same as the contents we have just generated, then abort (don't rewrite
+    // it).
+    let old_contents = std::fs::read(filename);
+    if let Ok(c) = old_contents {
+        if c == contents {
+            return Ok(())
+        }
+    }
+
     std::fs::write(filename, &contents)
 }
 
@@ -248,10 +262,10 @@ fn process_gpx(path: &Path, tiles: &mut HashMap<TileKey, Tile>, trace_info: &Opt
     }
 }
 
-fn is_gpx(entry: &DirEntry) -> bool {
+fn is_file_with_extension(entry: &DirEntry, ext: &str) -> bool {
     entry.file_name()
         .to_str()
-        .map(|s| s.ends_with(".gpx"))
+        .map(|s| s.ends_with(ext))
         .unwrap_or(false)
 }
 
@@ -263,7 +277,7 @@ fn read_gpx(input_dir: &Vec<PathBuf>, tiles: &mut HashMap<TileKey, Tile>, trace_
 
         for entry in walker {
             let e = entry.unwrap();
-            if is_gpx(&e) {
+            if is_file_with_extension(&e, ".gpx") {
                 //println!("{:?}", e.path().to_str().unwrap());
                 process_gpx(&e.path(), tiles, trace_info);
             }
@@ -276,6 +290,36 @@ fn write_tiles(output_dir: &str, tiles: &HashMap<TileKey, Tile>) {
     tiles.par_iter().for_each( |(key, tile)| {
         let _ = write_png_16(&tile, &format!("{}/{}/{}/{}.png", output_dir, key.zoom, key.x, key.y));
     });
+
+    // Delete files for tiles that don't exist anymore.
+    let walker = WalkDir::new(output_dir).into_iter();
+
+    let tile_path_re: Regex = Regex::new(r"\/(\d+)\/(\d+)\/(\d+)\.png$").unwrap();
+
+    for entry in walker {
+        let e = entry.unwrap();
+        if is_file_with_extension(&e, ".png") {
+            let p = e.path().to_str().unwrap();
+            match tile_path_re.captures(p) {
+                Some(caps) => {
+                    let key = TileKey {
+                        zoom: caps[1].parse::<u32>().unwrap(),
+                        x: caps[2].parse::<u32>().unwrap(),
+                        y: caps[3].parse::<u32>().unwrap()
+                    };
+                    if ! tiles.contains_key(&key) {
+                        let res = fs::remove_file(e.path());
+                        match res {
+                            Ok(()) => { println!("Deleted {}", p); }
+                            Err(err) => { println!("Error: {}", err); }
+                        }
+                        
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 fn main() {
