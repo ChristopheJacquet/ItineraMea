@@ -39,6 +39,10 @@ struct Args {
     /// squares per tile).
     #[arg(long)]
     trace: Option<String>,
+
+    /// Maximum zoom level.
+    #[arg(long, default_value_t=16)]
+    max_zoom: u32,
 }
 
 struct Coords {
@@ -60,7 +64,6 @@ struct TraceInfo {
 }
 
 const NUM_SQUARES: u32 = 16;
-const MAX_ZOOM: u32 = 16;
 const CRC32: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 type Tile = [[bool; NUM_SQUARES as usize]; NUM_SQUARES as usize];
@@ -89,8 +92,8 @@ fn add_pixel(zoom: u32, xtile: u32, xsq: u32, ytile: u32, ysq: u32, tiles: &mut 
 }
 
 #[inline(always)]
-fn add_pixel_at_all_levels(mut xsq: i32, mut ysq: i32, tiles: &mut HashMap<TileKey, Tile>, gpx_path: &Path, trace_info: &Option<TraceInfo>) {
-    for zoom in (0..=MAX_ZOOM).rev() {
+fn add_pixel_at_all_levels(mut xsq: i32, mut ysq: i32, tiles: &mut HashMap<TileKey, Tile>, max_zoom: u32, gpx_path: &Path, trace_info: &Option<TraceInfo>) {
+    for zoom in (0..=max_zoom).rev() {
         let (xtile, xdelta) = (xsq as u32 / NUM_SQUARES, xsq as u32 % NUM_SQUARES);
         let (ytile, ydelta) = (ysq as u32 / NUM_SQUARES, ysq as u32 % NUM_SQUARES);
         add_pixel(zoom, xtile, xdelta, ytile, ydelta, tiles);
@@ -105,7 +108,7 @@ fn add_pixel_at_all_levels(mut xsq: i32, mut ysq: i32, tiles: &mut HashMap<TileK
 }
 
 #[inline(always)]
-fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Tile>, gpx_path: &Path, trace_info: &Option<TraceInfo>) {
+fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Tile>, max_zoom: u32, gpx_path: &Path, trace_info: &Option<TraceInfo>) {
     // Yield integer coordinates on the line from (x0, y0) to (x1, y1).
 
     // Input coordinates should be integers.
@@ -141,7 +144,7 @@ fn bresenham(x0: i32, y0: i32, x1: i32, y1: i32, tiles: &mut HashMap<TileKey, Ti
     let mut pixy = y0;
 
     for _x in 0..=dx {
-        add_pixel_at_all_levels(pixx, pixy, tiles, gpx_path, trace_info);
+        add_pixel_at_all_levels(pixx, pixy, tiles, max_zoom, gpx_path, trace_info);
         if d >= 0 {
             d -= 2*dx;
             // optim
@@ -218,7 +221,7 @@ fn write_png_16(tile: &Tile, filename: &str) -> std::io::Result<()> {
     std::fs::write(filename, &contents)
 }
 
-fn process_gpx(path: &Path, tiles: &mut HashMap<TileKey, Tile>, trace_info: &Option<TraceInfo>) {
+fn process_gpx(path: &Path, tiles: &mut HashMap<TileKey, Tile>, max_zoom: u32, trace_info: &Option<TraceInfo>) {
     //println!("GPX: {}", path);
     let content = std::fs::read_to_string(path).ok().unwrap();
 
@@ -243,10 +246,10 @@ fn process_gpx(path: &Path, tiles: &mut HashMap<TileKey, Tile>, trace_info: &Opt
                                 _ => (),
                             }
                         }
-                        let cur_sq = tile_num(x, y, MAX_ZOOM);
+                        let cur_sq = tile_num(x, y, max_zoom);
                         match prev_sq {
                             Some(s) => {
-                                bresenham(s.x as i32, s.y as i32, cur_sq.x as i32, cur_sq.y as i32, tiles, path, trace_info);
+                                bresenham(s.x as i32, s.y as i32, cur_sq.x as i32, cur_sq.y as i32, tiles, max_zoom, path, trace_info);
                             },
                             _ => (),
                         }
@@ -270,7 +273,7 @@ fn is_file_with_extension(entry: &DirEntry, ext: &str) -> bool {
 }
 
 #[inline(never)]
-fn read_gpx(input_dir: &Vec<PathBuf>, tiles: &mut HashMap<TileKey, Tile>, trace_info: &Option<TraceInfo>) {
+fn read_gpx(input_dir: &Vec<PathBuf>, tiles: &mut HashMap<TileKey, Tile>, max_zoom: u32, trace_info: &Option<TraceInfo>) {
     for dir in input_dir {
         println!("Processing input directory: {dir:?}.");
         let walker = WalkDir::new(dir).into_iter();
@@ -279,7 +282,7 @@ fn read_gpx(input_dir: &Vec<PathBuf>, tiles: &mut HashMap<TileKey, Tile>, trace_
             let e = entry.unwrap();
             if is_file_with_extension(&e, ".gpx") {
                 //println!("{:?}", e.path().to_str().unwrap());
-                process_gpx(&e.path(), tiles, trace_info);
+                process_gpx(&e.path(), tiles, max_zoom, trace_info);
             }
         }
     }
@@ -351,7 +354,7 @@ fn main() {
 
     let start = Instant::now();
 
-    read_gpx(&args.input_dir, &mut tiles, &trace_info);
+    read_gpx(&args.input_dir, &mut tiles, args.max_zoom, &trace_info);
 
     println!("==> At {}", start.elapsed().as_millis());
 
