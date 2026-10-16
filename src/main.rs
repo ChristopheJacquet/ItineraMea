@@ -208,7 +208,7 @@ fn write_png_16(tile: &Tile, filename: &str) -> std::io::Result<()> {
     pack_png_chunk(b"IDAT", &[&compressed], &mut contents); // TODO...
     pack_png_chunk(b"IEND", &[], &mut contents);
 
-    // Try to read the destination file. If it exsists and its contents is the
+    // Try to read the destination file. If it exists and its contents is the
     // same as the contents we have just generated, then abort (don't rewrite
     // it).
     let old_contents = std::fs::read(filename);
@@ -335,12 +335,17 @@ fn main() {
             let int_parts: Vec<Result<u32, _>> = parts.into_iter().map(|x| x.parse::<u32>()).collect();
             match int_parts.as_slice() {
                 [Ok(zoom), Ok(x), Ok(y)] => {
-                    println!("Tracing square zoom={}, x={}, y={}", zoom, x, y);
-                    Some(TraceInfo{
-                        zoom: *zoom,
-                        x: *x,
-                        y: *y,
-                    })
+                    if *zoom <= args.max_zoom {
+                        println!("Tracing square zoom={}, x={}, y={}", zoom, x, y);
+                        Some(TraceInfo{
+                            zoom: *zoom,
+                            x: *x,
+                            y: *y,
+                        })
+                    } else {
+                        println!("WARNING: Cannot trace for zoom level {} strictly greater than max_zoom={}. Ignoring --trace argument.", zoom, args.max_zoom);
+                        None
+                    }
                 },
                 _ => {
                     println!("Bad format for --trace value. Expects z,x,y where z, x and y are unsigned integers.");
